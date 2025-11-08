@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Elektronik & Technische Informatik</title>
+<style>
+  body { margin: 20px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; background:#f4f6f8; color:#111; }
+  h1 { margin:0 0 8px 0; font-size:18px; }
+  #container { display:flex; flex-direction: column; gap:18px; align-items:flex-start; }
+  #ui { width:300px; }
+  .controls { display:flex; gap:8px; margin-top:6px; flex-wrap:wrap; }
+  button { padding:8px 10px; border-radius:8px; border:1px solid #bbb; background:#fff; cursor:pointer; }
+  .small { margin-top:8px; font-size:13px; color:#444; }
+  #status { margin-top:12px; font-weight:700; }
+  canvas { image-rendering: auto; border-radius:6px; box-shadow:0 8px 28px rgba(0,0,0,0.12); }
+  .legend { margin-top:12px; font-size:13px; }
+  .pad { display:inline-block; padding:6px 8px; border-radius:6px; background:#fff; border:1px solid #ddd; margin-right:6px; }
+</style>
+</head>
+<body>
+
+<h1>Elektronik & Technische Informatik</h1>
+<div id="container">
+  <div id="ui">
+    <div class="controls">
+      <button id="resetBtn">Reset Verbindungen</button>
+      <button id="autoBtn">Automatisch verbinden</button>
+    </div>
+
+    <div class="small">Klicke ein Pad an (+ oder -) und dann das passende LED-Pad (+ oder -), um eine Leitung zu legen. VORSICHT: falsche Verbindungen können die Leiterplatte beschädigen.</div>
+
+    <div id="status">Leg Los!</div>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="canvas" width="322" height="584"></canvas>
+    <img id="smoke" src="img/smoke.gif" style="position:absolute; top:160px; left:20px; width:322px; height:584px; display:none; pointer-events:none;">
+  </div>
+  <a href="https://www.htl-salzburg.at/elektronik-technische-informatik.html">HTBLuVA-Salzburg / El & TInf</a>
+</div>
+
+<script>
+/*
+  pcb_routing.html
+  - Images in ./img/: pcb1.png (initial), pcb_led.png (LED on), pcb_damage.png (damage)
+  - Coordinates are pixel coordinates relative to top-left (user confirmed)
+  - Pads (diameter 10 px): defined exactly as requested
+  - Click pad A then pad B to toggle a connection (undirected). Multiple connections allowed.
+  - After any change: check graph connectivity.
+    * Success: if + connected (path) to LED+ AND - connected to LED- -> background becomes pcb_led.png
+    * Damage: if + connects to any fake OR + connects to LED- OR - connects to any fake OR - connects to LED+ -> background becomes pcb_damage.png
+    * If both conditions occur simultaneously, damage takes priority.
+  - Reset removes all connections and restores original background.
+*/
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: true });
+const statusEl = document.getElementById('status');
+const resetBtn = document.getElementById('resetBtn');
+const autoBtn = document.getElementById('autoBtn');
+const smokeImg = document.getElementById('smoke');
+
+// images (in img/ subfolder)
+const IMG_BASE = 'img/pcb1.png';
+const IMG_LED  = 'img/pcb_led.png';
+const IMG_DMG  = 'img/pcb_damage.png';
+
+const imgBase = new Image();
+const imgLed  = new Image();
+const imgDmg  = new Image();
+imgBase.src = IMG_BASE;
+imgLed.src  = IMG_LED;
+imgDmg.src  = IMG_DMG;
+
+// explicit pad coords (pixel coords you gave) and diam=10 -> radius 5
+const PAD_DIAM = 10;
+const PAD_R = PAD_DIAM / 2;
+
+// pads naming as agreed
+// pad indices:
+// 0 = pad_p_plus    (250,78)  type '+'
+// 1 = pad_p_minus   (267,78)  type '-'
+// 2 = pad_f1        (49,78)   type 'F'
+// 3 = pad_f2        (66,78)   type 'F'
+// 4 = pad_f3        (84,78)   type 'F'
+// 5 = pad_led_plus  (32,473)  type 'A' (Anode)
+// 6 = pad_led_minus (32,520)  type 'K' (Kathode)
+const pads = [
+  { id:0, x:250, y:78,  type:'+' },
+  { id:1, x:267, y:78,  type:'-' },
+  { id:2, x:49,  y:78,  type:'F' },
+  { id:3, x:66,  y:78,  type:'F' },
+  { id:4, x:84,  y:78,  type:'F' },
+  { id:5, x:32,  y:473, type:'A' },
+  { id:6, x:32,  y:520, type:'K' }
+];
+
+// graph edges: undirected set of "a-b" where a<b
+const edges = new Set();
+let selectedPad = null;
+
+// current background image reference (imgBase / imgLed / imgDmg)
+let currentBg = imgBase;
+
+// ensure canvas matches base image size (user image is 322x584)
+imgBase.onload = () => {
+  // set canvas size to image's natural size (guard if user used different sized images)
+  canvas.width = imgBase.naturalWidth || canvas.width;
+  canvas.height = imgBase.naturalHeight || canvas.height;
+  draw();
+};
+imgLed.onload = imgDmg.onload = () => { /* no-op, cached */ };
+
+// helpers
+function edgeKey(a,b){ if(a>b) [a,b]=[b,a]; return `${a}-${b}`; }
+function parseEdge(e){ const [a,b] = e.split('-').map(Number); return {a,b}; }
+
+// toggle edge between two pad ids
+function toggleEdge(a,b){
+  const k = edgeKey(a,b);
+  if(edges.has(k)) edges.delete(k);
+  else edges.add(k);
+}
+
+// pad hit test (returns pad or null)
+function padUnder(x,y){
+  for(const p of pads){
+    const dx = x - p.x;
+    const dy = y - p.y;
+    if(Math.hypot(dx,dy) <= PAD_R + 6) return p; // small hit margin
+  }
+  return null;
+}
+
+// BFS connectivity between two pad ids in pad graph defined by edges
+function isConnected(a,b){
+  if(a===b) return true;
+  const n = pads.length;
+  const adj = Array.from({length:n}, ()=>[]);
+  for(const e of edges){
+    const {a:aa,b:bb} = parseEdge(e);
+    adj[aa].push(bb);
+    adj[bb].push(aa);
+  }
+  const q = [a];
+  const seen = new Set([a]);
+  while(q.length){
+    const u = q.shift();
+    if(u===b) return true;
+    for(const v of adj[u]){
+      if(!seen.has(v)){ seen.add(v); q.push(v); }
+    }
+  }
+  return false;
+}
+
+// check rules and update background
+function evaluateState(){
+  // convenience indices
+  const plus = 0, minus = 1;
+  const fakes = [2,3,4];
+  const ledA = 5, ledK = 6;
+
+  // damage conditions:
+  // plus -> any fake OR plus -> ledK
+  // minus -> any fake OR minus -> ledA
+  let damage = false;
+  for(const f of fakes){
+    if(isConnected(plus, f)) damage = true;
+    if(isConnected(minus, f)) damage = true;
+  }
+  if(isConnected(plus, ledK)) damage = true;
+  if(isConnected(minus, ledA)) damage = true;
+
+  // success condition:
+  const plusToA = isConnected(plus, ledA);
+  const minusToK = isConnected(minus, ledK);
+
+  // priority: damage over success (as requested)
+  if(damage){
+    currentBg = imgDmg;
+    statusEl.textContent = "Das war wohl nichts ...";
+    smokeImg.style.display = 'block'; // GIF sichtbar
+  } else {
+    smokeImg.style.display = 'none'; // GIF ausblenden
+    if(plusToA && minusToK){
+      currentBg = imgLed;
+      statusEl.textContent = "LED korrekt verbunden :-)";
+    } else {
+      currentBg = imgBase;
+      statusEl.textContent = `Offen: ${edges.size} Verbindung(en).`;
+    }
+  }
+  draw();
+}
+
+// draw everything
+function draw(){
+  // background
+  if(currentBg && currentBg.complete){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(currentBg, 0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#07220f';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+
+  // draw existing traces (edges) as copper strokes
+  for(const e of edges){
+    const {a,b} = parseEdge(e);
+    const pa = pads[a], pb = pads[b];
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#FF0000';       //'#b86f2f' // copper
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.closePath();
+
+    // subtle glow if connected near sources
+    // If either endpoint connected to plus/minus, draw a light glow
+    if(isConnected(0,a) || isConnected(0,b) || isConnected(1,a) || isConnected(1,b)){
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,210,110,0.25)';
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = 'rgba(255,210,110,0.08)';
+      ctx.lineWidth = 18;
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.stroke();
+      ctx.closePath();
+      ctx.restore();
+    }
+  }
+
+  // draw pads on top
+  for(const p of pads){
+    // shadow ring
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.arc(p.x, p.y+1, PAD_R + 4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.closePath();
+
+    // gold pad
+    ctx.beginPath();
+    ctx.fillStyle = '#d9b34b';
+    ctx.arc(p.x, p.y, PAD_R, 0, Math.PI*2);
+    ctx.fill();
+    ctx.closePath();
+
+    // edge
+    ctx.beginPath();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#ab7a2a';
+    ctx.arc(p.x, p.y, PAD_R, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.closePath();
+
+    // label/type small
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let label = '';
+    if(p.type === '+') label = '';
+    else if(p.type === '-') label = '';
+    else if(p.type === 'A') label = '';
+    else if(p.type === 'K') label = '';
+    else label = '•';
+    ctx.fillStyle = '#061c12';
+    ctx.fillText(label, p.x, p.y - PAD_R - 10);
+  }
+
+  // highlight selected pad
+  if(selectedPad){
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff9c8';
+    ctx.arc(selectedPad.x, selectedPad.y, PAD_R + 8, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.closePath();
+  }
+}
+
+// click handling: select pad then target; clicking same pad deselects; clicking elsewhere deselects
+canvas.addEventListener('click', (ev)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  const pad = padUnder(x,y);
+  if(!pad){
+    // clicked empty area -> deselect
+    selectedPad = null;
+    draw();
+    return;
+  }
+  if(!selectedPad){
+    selectedPad = pad;
+    draw();
+    return;
+  } else {
+    // second click
+    if(selectedPad.id === pad.id){
+      selectedPad = null;
+      draw();
+      return;
+    } else {
+      // toggle edge between selectedPad and pad
+      toggleEdge(selectedPad.id, pad.id);
+      selectedPad = null;
+      evaluateState();
+    }
+  }
+});
+
+// reset button
+resetBtn.addEventListener('click', ()=>{
+  edges.clear();
+  selectedPad = null;
+  currentBg = imgBase;
+
+  evaluateState();
+
+  statusEl.textContent = "Verbindungen entfernt. Leg Los!";
+
+  draw();
+});
+
+// auto button: create "correct" connections by connecting plus->ledA and minus->ledK (direct)
+autoBtn.addEventListener('click', ()=>{
+  edges.clear();
+  edges.add(edgeKey(0,5)); // plus -> LED anode
+  edges.add(edgeKey(1,6)); // minus -> LED cathode
+  evaluateState();
+});
+
+// allow toggling edges by clicking same pair again (already implemented)
+
+// initial draw (in case base image loads later)
+draw();
+
+// if images load later, redraw
+imgBase.onload = imgLed.onload = imgDmg.onload = () => { draw(); };
+
+</script>
+</body>
+</html>
