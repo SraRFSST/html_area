@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Neuron – Signal – Funktion</title>
+<link rel="icon" type="image/x-icon" href="img/logo.png">
+
+<style>
+    body {
+        margin: 0;
+        font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+        background: #eef2f7;
+        color: #222;
+    }
+
+    h1 {
+        font-size: 28px;
+        font-weight: 700;
+        color: #4d4b4d;
+        margin: 20px 0 10px;
+        text-align: center;
+    }
+
+    #container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        padding: 20px;
+    }
+
+    #personalInfoBlock {
+        width: 95%;
+        max-width: 420px;
+        background: #e0e7ff;
+        padding: 20px;
+        border-radius: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        text-align: center;
+    }
+
+    #personalInfoBlock p:first-child {
+        font-size: 20px;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    #personalInfoBlock p:last-child {
+        font-size: 16px;
+        color: #555;
+        margin-top: 6px;
+    }
+
+    #ui {
+        width: 95%;
+        max-width: 360px;
+        background: #fff;
+        padding: 18px;
+        border-radius: 14px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+
+    .controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .controls button {
+        flex: 1;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: none;
+        background: #6C63FF;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.25s;
+    }
+
+    .controls button:hover {
+        background: #574fcf;
+        transform: scale(1.05);
+    }
+
+    .small {
+        font-size: 14px;
+        color: #666;
+        margin-top: 10px;
+        line-height: 1.4;
+    }
+
+    #status {
+        font-weight: 600;
+        margin-top: 12px;
+        text-align: center;
+        color: #444;
+    }
+
+    #canvasWrap {
+        position: relative;
+        width: 100%;
+        max-width: 512px;
+    }
+
+    canvas {
+        width: 100%;
+        height: auto;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+    }
+
+    #speechBubble {
+        position: absolute;
+        top: 22%;
+        left: 60%;
+        transform: translateX(-50%);
+        background: #fff;
+        border: 2px solid #333;
+        border-radius: 24px;
+        padding: 14px 24px;
+        font-size: 20px;
+        font-weight: 600;
+        color: #111;
+        box-shadow: 2px 4px 12px rgba(0,0,0,0.18);
+        opacity: 0;
+        pointer-events: none;
+        animation: fadeInOut 5s ease-in-out forwards;
+        z-index: 10;
+    }
+
+    #speechBubble::after {
+        content: "";
+        position: absolute;
+        bottom: 14px;
+        left: -18px;
+        border-width: 10px 18px 10px 0;
+        border-style: solid;
+        border-color: transparent #ffffff transparent transparent;
+    }
+
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-10px); }
+        10%, 80% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-10px); }
+    }
+</style>
+</head>
+
+<body>
+<h1>Neuron – Signal – Funktion</h1>
+
+<div id="container">
+
+    <div id="personalInfoBlock">
+        <p>👋 Willkommen!</p>
+        <p>Ordne die Neurontypen ihren Funktionen zu.</p>
+        <div>
+            <strong>Name:</strong> [Dein Name]<br>
+            <strong>Zitat:</strong> [Dein Motto]
+        </div>
+    </div>
+
+    <div id="ui">
+        <div class="controls">
+            <button id="resetBtn">Reset</button>
+            <button id="autoBtn">Auto</button>
+        </div>
+        <div class="small">Klicke zuerst einen Neurontyp (links) und dann die passende Funktion (rechts).</div>
+        <div id="status">Leg los!</div>
+    </div>
+
+    <div id="canvasWrap">
+        <canvas id="canvas" width="512" height="768"></canvas>
+        <img id="smoke" src="img/rain.gif" style="position:absolute;top:0;left:0;width:100%;display:none;pointer-events:none;">
+        <div id="speechBubble">Hallo!</div>
+    </div>
+</div>
+
+<script>
+/* ===================== Bild-Loader mit Fallback ===================== */
+function loadImage(src) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.src = src;
+
+        img.onload = () => resolve(img);
+
+        img.onerror = () => {
+            const fallback = document.createElement("canvas");
+            fallback.width = 512;
+            fallback.height = 768;
+            const c = fallback.getContext("2d");
+            c.fillStyle = "#ff4d4d";
+            c.fillRect(0, 0, fallback.width, fallback.height);
+            c.fillStyle = "#fff";
+            c.font = "20px sans-serif";
+            c.fillText("Bild fehlt:", 20, 40);
+            c.fillText(src, 20, 70);
+            resolve(fallback);
+        };
+    });
+}
+
+/* ===================== Setup ===================== */
+const userName = "Lisa";
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const smokeImg = document.getElementById("smoke");
+const speechBubble = document.getElementById("speechBubble");
+
+let imgBase, imgHappy, imgDmg;
+let currentBg;
+
+Promise.all([
+    loadImage("img/body_female.png"),
+    loadImage("img/body_happy_female.png"),
+    loadImage("img/body_sad_female.png")
+]).then(([base, happy, dmg]) => {
+    imgBase = base;
+    imgHappy = happy;
+    imgDmg = dmg;
+    currentBg = imgBase;
+    draw();
+});
+
+const PAD_R = 6;
+
+/* ===================== Pads ===================== */
+const pads = [
+    { id: 0, x: 50, y: 50,  label: "Motorneuron", type: "organ" },
+    { id: 2, x: 50, y: 150, label: "Interneuron", type: "organ" },
+    { id: 3, x: 50, y: 200, label: "Spiegelneuron", type: "organ" },
+    { id: 4, x: 50, y: 250, label: "Pyramidenzelle", type: "organ" },
+    { id: 1, x: 50, y: 100, label: "Sensorisches Neuron", type: "organ" },
+
+
+    { id: 5, x: 270, y: 400, label: "Bewegungssteuerung", type: "spot" },
+    { id: 6, x: 270, y: 450, label: "Reizwahrnehmung", type: "spot" },
+    { id: 7, x: 270, y: 500, label: "Signalverschaltung", type: "spot" },
+    { id: 8, x: 270, y: 550, label: "Empathie / Nachahmung", type: "spot" },
+    { id: 9, x: 270, y: 600, label: "Großhirnrinde", type: "spot" }
+];
+
+const correctPairs = [[0,5],[1,6],[2,7],[3,8],[4,9]];
+const edges = new Set();
+let selectedPad = null;
+
+/* ===================== Helpers ===================== */
+const edgeKey = (a,b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+const parseEdge = e => e.split("-").map(Number);
+
+function padUnder(x,y){
+    return pads.find(p => Math.hypot(p.x - x, p.y - y) <= PAD_R + 8) || null;
+}
+
+function isConnected(a,b){
+    const adj = Array.from({length: pads.length}, () => []);
+    for(const e of edges){
+        const [x,y] = parseEdge(e);
+        adj[x].push(y);
+        adj[y].push(x);
+    }
+    const q=[a], seen=new Set([a]);
+    while(q.length){
+        const u=q.shift();
+        if(u===b) return true;
+        for(const v of adj[u]) if(!seen.has(v)){ seen.add(v); q.push(v); }
+    }
+    return false;
+}
+
+/* ===================== Evaluation ===================== */
+function evaluateState(){
+    let correct = 0;
+    let wrong = false;
+
+    for(const [a,b] of correctPairs){
+        if(isConnected(a,b)) correct++;
+    }
+
+    for(const e of edges){
+        const [a,b] = parseEdge(e);
+        const pa = pads[a], pb = pads[b];
+
+        if(pa.type === pb.type) wrong = true;
+        const isValid = correctPairs.some(p => (p[0] === a && p[1] === b) || (p[0] === b && p[1] === a));
+        if(!isValid) wrong = true;
+    }
+
+    if(wrong){
+        currentBg = imgDmg;
+        smokeImg.style.display = "block";
+        statusEl.textContent = "Oh nein! Das passt nicht...";
+    }
+    else if(correct === 5){
+        currentBg = imgHappy;
+        smokeImg.style.display = "none";
+        statusEl.textContent = "Super! Alles richtig 😄";
+    }
+    else {
+        currentBg = imgBase;
+        smokeImg.style.display = "none";
+        statusEl.textContent = `Offen: ${edges.size} Verbindung(en).`;
+    }
+
+    draw();
+}
+
+/* ===================== Drawing ===================== */
+function draw(){
+    if(!currentBg) return;
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(currentBg,0,0,canvas.width,canvas.height);
+
+    for(const e of edges){
+        const [a,b] = parseEdge(e);
+        const pa = pads[a], pb = pads[b];
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ff4d4d";
+        ctx.stroke();
+    }
+
+    for(const p of pads){
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, PAD_R, 0, Math.PI*2);
+        ctx.fillStyle = p.type === "organ" ? "#fff" : "#d9b34b";
+        ctx.fill();
+        ctx.strokeStyle = "#777";
+        ctx.stroke();
+
+        if(p.type === "organ"){
+            ctx.font = "13px sans-serif";
+            ctx.fillStyle = "#333";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText(p.label, p.x + 16, p.y);
+        }
+    }
+
+    if(selectedPad){
+        ctx.beginPath();
+        ctx.arc(selectedPad.x, selectedPad.y, PAD_R + 6, 0, Math.PI*2);
+        ctx.strokeStyle = "#E8524B";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+}
+
+/* ===================== Interaction ===================== */
+function handleInteraction(ev){
+    ev.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const scale = canvas.clientWidth / canvas.width;
+
+    const clientX = ev.changedTouches ? ev.changedTouches[0].clientX : ev.clientX;
+    const clientY = ev.changedTouches ? ev.changedTouches[0].clientY : ev.clientY;
+
+    const x = (clientX - rect.left) / scale;
+    const y = (clientY - rect.top) / scale;
+
+    const pad = padUnder(x,y);
+    if(!pad){ selectedPad = null; draw(); return; }
+
+    if(!selectedPad){ selectedPad = pad; draw(); return; }
+
+    if(selectedPad.id === pad.id){ selectedPad = null; draw(); return; }
+
+    const k = edgeKey(selectedPad.id, pad.id);
+    edges.has(k) ? edges.delete(k) : edges.add(k);
+
+    selectedPad = null;
+    evaluateState();
+}
+
+canvas.addEventListener("click", handleInteraction);
+canvas.addEventListener("touchend", handleInteraction);
+
+/* ===================== Buttons ===================== */
+document.getElementById("resetBtn").onclick = () => {
+    edges.clear();
+    selectedPad = null;
+    currentBg = imgBase;
+    smokeImg.style.display = "none";
+    statusEl.textContent = "Zuordnungen entfernt. Leg los!";
+    draw();
+};
+
+document.getElementById("autoBtn").onclick = () => {
+    edges.clear();
+    correctPairs.forEach(([a,b]) => edges.add(edgeKey(a,b)));
+    evaluateState();
+};
+
+/* ===================== Sprechblase ===================== */
+window.addEventListener("load", () => {
+    speechBubble.textContent = `Hallo ${userName}!`;
+    speechBubble.style.opacity = "1";
+    setTimeout(() => speechBubble.style.display = "none", 9000);
+});
+
+window.addEventListener("resize", draw);
+</script>
+</body>
+</html>
