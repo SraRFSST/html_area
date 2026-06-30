@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Biomedizin - Organe Spiel</title>
+
+<style>
+
+body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:#f0f3f8;
+}
+
+h1{
+    text-align:center;
+    margin-top:20px;
+    color:#4d4b4d;
+}
+
+#container{
+    display:flex;
+    justify-content:center;
+    gap:20px;
+    padding:20px;
+    flex-wrap:wrap;
+}
+
+#info{
+    width:100%;
+    max-width:500px;
+    background:white;
+    padding:15px;
+    border-radius:12px;
+    text-align:center;
+    box-shadow:0 4px 12px rgba(0,0,0,0.1);
+}
+
+#organs{
+    width:180px;
+}
+
+.organ{
+    background:white;
+    border:2px solid #777;
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:10px;
+    text-align:center;
+    font-weight:bold;
+    cursor:grab;
+    user-select:none;
+}
+
+#game{
+    position:relative;
+    width:520px;
+    height:780px;
+}
+
+#body{
+    width:100%;
+    height:100%;
+}
+
+.zone{
+    position:absolute;
+    border:2px dashed rgba(255,0,0,0.15);
+    border-radius:10px;
+}
+
+.correct{
+    background:rgba(0,255,0,0.25);
+    border:2px solid green;
+}
+
+#status{
+    text-align:center;
+    font-size:22px;
+    font-weight:bold;
+    margin-top:10px;
+}
+
+button{
+    padding:10px 20px;
+    border:none;
+    border-radius:10px;
+    background:#6C63FF;
+    color:white;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#574fcf;
+}
+
+</style>
+</head>
+
+<body>
+
+<h1>🫀 Organe einsetzen</h1>
+
+<div id="container">
+
+<div id="info">
+    Ziehe die Organe an die richtige Stelle im Körper.
+</div>
+
+<button onclick="resetGame()">Reset</button>
+
+<div id="status">Ziehe die Organe in den Körper</div>
+
+<!-- LINKS -->
+<div id="organs">
+
+<div class="organ" draggable="true" data-organ="lungs">🫁 Lunge</div>
+<div class="organ" draggable="true" data-organ="heart">❤️ Herz</div>
+<div class="organ" draggable="true" data-organ="liver">🟤 Leber</div>
+<div class="organ" draggable="true" data-organ="stomach">🍽️ Magen</div>
+<div class="organ" draggable="true" data-organ="intestine">🧬 Darm</div>
+
+</div>
+
+<!-- KÖRPER -->
+<div id="game">
+
+<img id="body" src="bild3.png">
+
+<!-- LUNGE -->
+<div class="zone" data-target="lungs"
+style="left:150px; top:170px; width:230px; height:140px;"></div>
+
+<!-- HERZ -->
+<div class="zone" data-target="heart"
+style="left:235px; top:230px; width:70px; height:70px;"></div>
+
+<!-- LEBER -->
+<div class="zone" data-target="liver"
+style="left:170px; top:330px; width:170px; height:90px;"></div>
+
+<!-- MAGEN -->
+<div class="zone" data-target="stomach"
+style="left:280px; top:330px; width:120px; height:120px;"></div>
+
+<!-- DARM -->
+<div class="zone" data-target="intestine"
+style="left:160px; top:450px; width:230px; height:230px;"></div>
+
+</div>
+
+</div>
+
+<script>
+
+const organs = document.querySelectorAll(".organ");
+const zones = document.querySelectorAll(".zone");
+const body = document.getElementById("body");
+const status = document.getElementById("status");
+
+let score = 0;
+
+organs.forEach(o => {
+
+    o.addEventListener("dragstart", e => {
+        e.dataTransfer.setData("organ", o.dataset.organ);
+    });
+
+});
+
+zones.forEach(z => {
+
+    z.addEventListener("dragover", e => e.preventDefault());
+
+    z.addEventListener("drop", e => {
+
+        e.preventDefault();
+
+        const organ = e.dataTransfer.getData("organ");
+        const target = z.dataset.target;
+
+        if(organ === target && !z.classList.contains("correct")){
+
+            z.classList.add("correct");
+
+            document.querySelector(`[data-organ="${organ}"]`)
+            .style.display = "none";
+
+            score++;
+
+            status.innerText = "✅ Richtig!";
+
+            body.src = "bild3.png";
+
+            if(score === 5){
+                body.src = "bild4.png";
+                status.innerText = "🎉 Alles richtig!";
+            }
+
+        } else {
+
+            body.src = "bild5.png";
+            status.innerText = "❌ Falsch!";
+
+            setTimeout(() => {
+                if(score < 5){
+                    body.src = "bild3.png";
+                }
+            }, 1000);
+        }
+
+    });
+
+});
+
+function resetGame(){
+
+    score = 0;
+
+    document.querySelectorAll(".zone")
+    .forEach(z => z.classList.remove("correct"));
+
+    document.querySelectorAll(".organ")
+    .forEach(o => o.style.display = "block");
+
+    body.src = "bild3.png";
+    status.innerText = "Ziehe die Organe in den Körper";
+
+}
+
+</script>
+
+</body>
+</html>
